@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TTS Player - Ativo (Padrão)</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: transparent;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+
+        #audio-container {
+            display: none;
+        }
+
+        .status {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: #fff;
+            font-size: 12px;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 5px 10px;
+            border-radius: 5px;
+            display: none;
+        }
+
+        .player-badge {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            color: #fff;
+            font-size: 10px;
+            background: rgba(145, 70, 255, 0.8);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="status" id="status"></div>
+    <div class="player-badge">⭐ Player Padrão Ativo</div>
+    <div id="audio-container"></div>
+
+    <script>
+        (function () {
+            // Função para obter parâmetros da URL
+            function getQueryParam(name) {
+                const urlParams = new URLSearchParams(window.location.search);
+                return urlParams.get(name);
+            }
+
+            // Função para gerar URL do TTS
+            function generateTTSUrl(text, language = 'pt-BR') {
+                const encodedText = encodeURIComponent(text.trim());
+                return `https://translate.google.com/translate_tts?ie=UTF-8&tl=${language}&client=tw-ob&q=${encodedText}`;
+            }
+
+            // Variável global para controlar se está tocando
+            let isPlaying = false;
+            let currentAudio = null;
+            let lastPlayTime = 0;
+
+            // Função para liberar o lock de reprodução
+            function releasePlayLock() {
+                isPlaying = false;
+                currentAudio = null;
+                showStatus('');
+            }
+
+            // Fallback: força liberação se isPlaying ficar preso por muito tempo
+            setInterval(() => {
+                if (isPlaying && (Date.now() - lastPlayTime > 6000)) {
+                    console.warn('⚠️ isPlaying travado por 6s+, forçando liberação');
+                    releasePlayLock();
+                }
+            }, 1000);
+
+            // Função para tocar o áudio
+            function playAudio(text) {
+                if (!text || text.trim().length === 0) {
+                    return;
+                }
+
+                // Limita o tamanho do texto
+                const cleanText = text.trim().substring(0, 200);
+
+                if (cleanText.length === 0) {
+                    return;
+                }
+
+                // Para áudio anterior se estiver tocando
+                if (currentAudio) {
+                    currentAudio.pause();
+                    currentAudio = null;
+                }
+
+                // Remove áudios anteriores
+                const container = document.getElementById('audio-container');
+                container.innerHTML = '';
+
+                // Cria novo elemento de áudio
+                const audio = document.createElement('audio');
+                audio.autoplay = true;
+                audio.volume = 1.0;
+                currentAudio = audio;
+
+                // Gera URL do TTS
+                const ttsUrl = generateTTSUrl(cleanText);
+                audio.src = ttsUrl;
+
+                // Event listeners
+                audio.addEventListener('loadstart', () => {
+                    showStatus('Carregando áudio...');
+                });
+
+                audio.addEventListener('canplay', () => {
+                    showStatus('Tocando...');
+                });
+
+                audio.addEventListener('play', () => {
+                    console.log('▶️ Áudio iniciado');
+                    isPlaying = true;
+                    lastPlayTime = Date.now();
+                });
+
+                audio.addEventListener('ended', () => {
+                    console.log('✅ Áudio finalizado');
+                    releasePlayLock();
+                    // Remove o áudio após tocar
+                    setTimeout(() => {
+                        container.innerHTML = '';
+                    }, 100);
+                });
+
+                audio.addEventListener('error', (e) => {
+                    console.error('❌ Erro ao tocar áudio:', e);
+                    console.error('❌ Detalhes do erro:', {
+                        error: e.error,
+                        target: e.target,
+                        currentSrc: e.target?.currentSrc
+                    });
+                    showStatus('Erro ao tocar áudio');
+                    releasePlayLock();
+                    container.innerHTML = '';
+                });
+
+                // Adiciona ao container
+                container.appendChild(audio);
+
+                // Força o play (alguns navegadores bloqueiam autoplay)
+                audio.play().then(() => {
+                    console.log('✅ Play iniciado com sucesso');
+                }).catch(err => {
+                    console.error('❌ Erro ao iniciar reprodução:', err);
+                    console.error('❌ Tipo de erro:', err.name, err.message);
+                    showStatus('Erro: ' + err.name);
+                    releasePlayLock();
+                });
+            }
+
+            // Função para mostrar status
+            function showStatus(message) {
+                const statusEl = document.getElementById('status');
+                if (message) {
+                    statusEl.textContent = message;
+                    statusEl.style.display = 'block';
+                } else {
+                    statusEl.style.display = 'none';
+                }
+            }
+
+            // Lê o texto da URL e toca o áudio IMEDIATAMENTE
+            const urlText = getQueryParam('text');
+            if (urlText && urlText.trim()) {
+                console.log('📝 Texto recebido via URL:', urlText.substring(0, 50));
+                console.log('🎵 Tocando áudio da URL imediatamente...');
+                // Toca imediatamente quando vem da URL
+                setTimeout(() => {
+                    playAudio(urlText);
+                }, 100);
+            }
+
+            // Escuta mudanças na URL (para atualizações do OBS)
+            let lastUrl = window.location.href;
+            let lastText = urlText || null;
+            setInterval(() => {
+                if (window.location.href !== lastUrl) {
+                    lastUrl = window.location.href;
+                    const newText = getQueryParam('text');
+                    if (newText && newText.trim() && newText !== lastText) {
+                        lastText = newText;
+                        console.log('🔄 URL atualizada, novo texto:', newText.substring(0, 50));
+                        playAudio(newText);
+                    }
+                }
+            }, 100);
+
+            // ⭐ PLAYER PADRÃO ATIVO - Processa fila de TTS via polling
+            // Este é o player oficial que funciona sem repetir mensagens
+            let processingLock = false;
+            let lastProcessTime = 0;
+
+            async function processQueue() {
+                // Não processa se o lock está ativo há menos de 4 segundos
+                const now = Date.now();
+                if (processingLock && (now - lastProcessTime < 4000)) {
+                    return;
+                }
+
+                // Se o lock está travado há mais de 4 segundos, força liberação
+                if (processingLock && (now - lastProcessTime >= 4000)) {
+                    console.warn('⚠️ Lock travado por 4s+, forçando liberação');
+                    processingLock = false;
+                    isPlaying = false;
+                }
+
+                try {
+                    const response = await fetch('/api/tts/state');
+                    if (!response.ok) {
+                        console.warn('⚠️ Falha ao buscar estado TTS');
+                        return;
+                    }
+
+                    const data = await response.json();
+
+                    if (data.queue && data.queue.length > 0 && !data.paused && data.enabled) {
+                        const nextMessage = data.queue[0];
+                        if (nextMessage && nextMessage.text) {
+                            processingLock = true;
+                            lastProcessTime = now;
+                            console.log('🔊 Processando mensagem da fila:', nextMessage.text.substring(0, 50));
+
+                            // Remove da fila IMEDIATAMENTE
+                            try {
+                                const skipResponse = await fetch('/api/tts/control', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ action: 'skip' })
+                                });
+
+                                if (skipResponse.ok) {
+                                    console.log('✅ Mensagem removida da fila');
+                                }
+                            } catch (e) {
+                                console.warn('⚠️ Erro ao remover da fila:', e);
+                            }
+
+                            // Toca o áudio (após remover da fila)
+                            playAudio(nextMessage.text);
+
+                            // Libera o lock após 3 segundos
+                            setTimeout(() => {
+                                processingLock = false;
+                                console.log('🔓 Lock liberado, pronto para próxima mensagem');
+                            }, 3000);
+                        }
+                    } else {
+                        processingLock = false;
+                    }
+                } catch (error) {
+                    console.error('❌ Erro ao processar fila:', error);
+                    processingLock = false;
+                }
+            }
+
+            // Processa fila a cada 500ms
+            console.log('⭐ PLAYER PADRÃO ATIVO - Sistema de polling TTS iniciado');
+            console.log('✅ Este é o player oficial sem repetições');
+            console.log('🔍 Debug: processQueue será chamado a cada 500ms');
+
+            // Debug: mostra estado a cada 3 segundos
+            setInterval(() => {
+                console.log('📊 Estado:', { isPlaying, processingLock, lastPlayTime: Date.now() - lastPlayTime });
+            }, 3000);
+
+            setInterval(processQueue, 500);
+        })();
+    </script>
+</body>
+
+</html>

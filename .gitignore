@@ -1,0 +1,6 @@
+node_modules/
+.env
+.twitch-tokens.json
+*.log
+.DS_Store
+

@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TTS Player (OBS Source)</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: transparent;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        
+        #audio-container {
+            display: none;
+        }
+        
+        .status {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            color: #fff;
+            font-size: 14px;
+            background: rgba(145, 70, 255, 0.9);
+            padding: 10px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            display: none;
+            z-index: 1000;
+        }
+        
+        .status.show {
+            display: block;
+        }
+        
+        .status.playing {
+            background: rgba(76, 175, 80, 0.9);
+        }
+        
+        .status.error {
+            background: rgba(244, 67, 54, 0.9);
+        }
+
+        .activation-prompt {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 30px 40px;
+            border-radius: 12px;
+            text-align: center;
+            z-index: 2000;
+            display: none;
+        }
+
+        .activation-prompt.show {
+            display: block;
+        }
+
+        .activation-prompt button {
+            margin-top: 20px;
+            padding: 12px 30px;
+            font-size: 16px;
+            background: #9146ff;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .activation-prompt button:hover {
+            background: #772ce8;
+        }
+    </style>
+</head>
+<body>
+    <div class="status" id="status">Sistema iniciando...</div>
+    <div id="audio-container"></div>
+    
+    <!-- Prompt para ativar áudio (autoplay bloqueado) -->
+    <div class="activation-prompt" id="activationPrompt">
+        <h2>🔊 Ativar Áudio TTS</h2>
+        <p>Clique no botão para permitir a reprodução de áudio</p>
+        <button id="activateBtn">Ativar Áudio</button>
+    </div>
+
+    <script>
+        console.log('🎵 TTS Player iniciado - Versão 2.0');
+        
+        // Estado do sistema
+        let audioEnabled = false;
+        let isPlaying = false;
+        let currentAudio = null;
+        let lastProcessedId = null;
+        let audioContext = null;
+
+        // Função para gerar URL do TTS com diferentes métodos
+        function generateTTSUrl(text, language = 'pt-BR') {
+            const encodedText = encodeURIComponent(text.trim());
+            // Usando client=gtx que é mais confiável
+            return `https://translate.google.com/translate_tts?ie=UTF-8&tl=${language}&client=gtx&q=${encodedText}`;
+        }
+
+        // Função para mostrar status
+        function showStatus(message, type = '') {
+            const statusEl = document.getElementById('status');
+            if (message) {
+                statusEl.textContent = message;
+                statusEl.className = 'status show ' + type;
+            } else {
+                statusEl.className = 'status';
+            }
+        }
+
+        // Função para testar autoplay e solicitar ativação se necessário
+        async function checkAutoplayPermission() {
+            try {
+                // Tenta criar um AudioContext
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                
+                // Testa com um áudio silencioso
+                const testAudio = document.createElement('audio');
+                testAudio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+                testAudio.volume = 0.01;
+                
+                const playPromise = testAudio.play();
+                
+                if (playPromise !== undefined) {
+                    await playPromise;
+                    testAudio.pause();
+                    audioEnabled = true;
+                    console.log('✅ Autoplay permitido');
+                    showStatus('✅ Áudio ativado', 'playing');
+                    setTimeout(() => showStatus(''), 2000);
+                    return true;
+                }
+            } catch (err) {
+                console.warn('⚠️ Autoplay bloqueado:', err.message);
+                showActivationPrompt();
+                return false;
+            }
+        }
+
+        // Mostra prompt para ativação manual
+        function showActivationPrompt() {
+            const prompt = document.getElementById('activationPrompt');
+            prompt.classList.add('show');
+            showStatus('⚠️ Clique para ativar áudio', 'error');
+        }
+
+        // Ativa áudio manualmente
+        document.getElementById('activateBtn').addEventListener('click', async () => {
+            try {
+                // Resume AudioContext se estiver suspenso
+                if (audioContext && audioContext.state === 'suspended') {
+                    await audioContext.resume();
+                }
+
+                // Toca um áudio silencioso para "desbloquear"
+                const testAudio = document.createElement('audio');
+                testAudio.src = generateTTSUrl('teste');
+                testAudio.volume = 0.01;
+                await testAudio.play();
+                testAudio.pause();
+
+                audioEnabled = true;
+                document.getElementById('activationPrompt').classList.remove('show');
+                showStatus('✅ Áudio ativado com sucesso!', 'playing');
+                console.log('✅ Áudio ativado pelo usuário');
+                
+                setTimeout(() => showStatus(''), 2000);
+            } catch (err) {
+                console.error('❌ Erro ao ativar áudio:', err);
+                showStatus('❌ Erro ao ativar. Tente novamente.', 'error');
+            }
+        });
+
+        // Função melhorada para tocar o áudio
+        async function playAudio(text) {
+            if (!text || text.trim().length === 0) {
+                console.warn('⚠️ Texto vazio, ignorando');
+                return;
+            }
+
+            // Verifica se áudio está habilitado
+            if (!audioEnabled) {
+                console.warn('⚠️ Áudio não ativado ainda');
+                showActivationPrompt();
+                return;
+            }
+
+            // Limita o tamanho do texto
+            const cleanText = text.trim().substring(0, 200);
+            
+            console.log('🔊 Tocando áudio:', cleanText.substring(0, 50) + '...');
+            showStatus('🔊 Tocando: ' + cleanText.substring(0, 30) + '...', 'playing');
+
+            // Para áudio anterior se estiver tocando
+            if (currentAudio) {
+                try {
+                    currentAudio.pause();
+                    currentAudio.src = '';
+                } catch (e) {
+                    console.warn('Erro ao parar áudio anterior:', e);
+                }
+                currentAudio = null;
+            }
+
+            // Remove áudios anteriores
+            const container = document.getElementById('audio-container');
+            container.innerHTML = '';
+
+            // Cria novo elemento de áudio
+            const audio = new Audio();
+            audio.volume = 1.0;
+            audio.preload = 'auto';
+            currentAudio = audio;
+            
+            // Gera URL do TTS
+            const ttsUrl = generateTTSUrl(cleanText);
+            console.log('🔗 URL do TTS:', ttsUrl.substring(0, 100) + '...');
+            
+            // Event listeners
+            audio.addEventListener('loadeddata', () => {
+                console.log('📥 Áudio carregado');
+            });
+
+            audio.addEventListener('canplay', () => {
+                console.log('✅ Áudio pronto para tocar');
+            });
+
+            audio.addEventListener('play', () => {
+                console.log('▶️ Áudio iniciado');
+                isPlaying = true;
+            });
+
+            audio.addEventListener('playing', () => {
+                console.log('▶️ Áudio tocando');
+            });
+
+            audio.addEventListener('ended', () => {
+                console.log('✅ Áudio finalizado');
+                showStatus('✅ Concluído');
+                isPlaying = false;
+                currentAudio = null;
+                setTimeout(() => {
+                    container.innerHTML = '';
+                    showStatus('');
+                }, 1000);
+            });
+
+            audio.addEventListener('error', (e) => {
+                let errorMsg = 'Erro desconhecido';
+                if (audio.error) {
+                    switch (audio.error.code) {
+                        case 1: errorMsg = 'MEDIA_ERR_ABORTED - Carregamento abortado'; break;
+                        case 2: errorMsg = 'MEDIA_ERR_NETWORK - Erro de rede'; break;
+                        case 3: errorMsg = 'MEDIA_ERR_DECODE - Erro de decodificação'; break;
+                        case 4: errorMsg = 'MEDIA_ERR_SRC_NOT_SUPPORTED - Formato não suportado'; break;
+                    }
+                }
+                console.error('❌ Erro ao tocar áudio:', errorMsg, audio.error);
+                showStatus('❌ Erro: ' + errorMsg, 'error');
+                isPlaying = false;
+                currentAudio = null;
+                container.innerHTML = '';
+                setTimeout(() => showStatus(''), 5000);
+            });
+
+            audio.addEventListener('stalled', () => {
+                console.warn('⚠️ Carregamento travado');
+            });
+
+            audio.addEventListener('waiting', () => {
+                console.log('⏳ Aguardando dados...');
+            });
+
+            // Define a fonte e adiciona ao container
+            audio.src = ttsUrl;
+            container.appendChild(audio);
+
+            // Tenta tocar
+            try {
+                const playPromise = audio.play();
+                if (playPromise !== undefined) {
+                    await playPromise;
+                    console.log('✅ Play iniciado com sucesso');
+                }
+            } catch (err) {
+                console.error('❌ Erro ao iniciar reprodução:', err);
+                
+                if (err.name === 'NotAllowedError') {
+                    audioEnabled = false;
+                    showActivationPrompt();
+                    showStatus('⚠️ Clique para ativar áudio', 'error');
+                } else {
+                    showStatus('❌ Erro: ' + err.name, 'error');
+                }
+                
+                isPlaying = false;
+                currentAudio = null;
+                setTimeout(() => showStatus(''), 3000);
+            }
+        }
+
+        // Processa fila de TTS via polling
+        async function processQueue() {
+            // Se estiver tocando, não processa
+            if (isPlaying) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/tts/state');
+                if (!response.ok) {
+                    console.error('❌ Erro ao buscar estado:', response.status);
+                    return;
+                }
+                
+                const data = await response.json();
+                
+                // Debug
+                if (data.queue && data.queue.length > 0) {
+                    console.log('📋 Fila:', data.queue.length, 'mensagens');
+                }
+                
+                if (data.queue && data.queue.length > 0 && !data.paused && data.enabled) {
+                    const nextMessage = data.queue[0];
+                    if (nextMessage && nextMessage.text) {
+                        const messageId = nextMessage.id || nextMessage.text + nextMessage.timestamp;
+                        
+                        // Se for a mesma mensagem que já processamos, ignora
+                        if (messageId === lastProcessedId) {
+                            return;
+                        }
+                        
+                        lastProcessedId = messageId;
+                        console.log('🔊 Nova mensagem da fila:', nextMessage.text.substring(0, 50));
+                        
+                        // Toca o áudio
+                        await playAudio(nextMessage.text);
+                        
+                        // Reseta após 7 segundos
+                        setTimeout(() => {
+                            lastProcessedId = null;
+                            console.log('✅ Pronto para próxima mensagem');
+                        }, 7000);
+                    }
+                } else {
+                    lastProcessedId = null;
+                }
+            } catch (error) {
+                console.error('❌ Erro ao processar fila:', error);
+                lastProcessedId = null;
+            }
+        }
+
+        // Inicialização
+        async function init() {
+            console.log('🚀 Inicializando TTS Player...');
+            showStatus('🔄 Verificando permissões...', 'playing');
+            
+            // Verifica autoplay
+            const hasAutoplay = await checkAutoplayPermission();
+            
+            if (hasAutoplay) {
+                console.log('✅ Sistema pronto');
+                showStatus('✅ Sistema pronto', 'playing');
+                setTimeout(() => showStatus(''), 2000);
+            } else {
+                console.log('⚠️ Aguardando ativação do usuário');
+            }
+
+            // Inicia polling
+            console.log('✅ Sistema de polling iniciado');
+            console.log('🎵 Aguardando mensagens na fila...');
+            setInterval(processQueue, 500);
+
+            // Teste de diagnóstico
+            console.log('📊 Diagnóstico do navegador:');
+            console.log('  - User Agent:', navigator.userAgent);
+            console.log('  - AudioContext:', typeof AudioContext !== 'undefined' ? 'Disponível' : 'Indisponível');
+            console.log('  - Audio element:', typeof Audio !== 'undefined' ? 'Disponível' : 'Indisponível');
+        }
+
+        // Inicia quando a página carregar
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+
+        // Expõe função de teste global
+        window.testTTS = function(text = 'Teste de áudio do sistema') {
+            console.log('🧪 Executando teste manual...');
+            playAudio(text);
+        };
+
+        console.log('💡 Dica: Execute window.testTTS("seu texto") no console para testar');
+    </script>
+</body>
+</html>

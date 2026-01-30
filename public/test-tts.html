@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste de TTS - Google Translate</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        
+        .subtitle {
+            color: #666;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 600;
+        }
+        
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 100px;
+            transition: border-color 0.3s;
+        }
+        
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        button {
+            width: 100%;
+            padding: 15px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 10px;
+        }
+        
+        button:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            display: none;
+        }
+        
+        .status.show {
+            display: block;
+        }
+        
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        
+        .log {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 5px;
+            border-left: 3px solid #667eea;
+            padding-left: 10px;
+        }
+        
+        .log-entry.error {
+            border-left-color: #dc3545;
+            color: #dc3545;
+        }
+        
+        .log-entry.success {
+            border-left-color: #28a745;
+            color: #28a745;
+        }
+
+        .diagnostics {
+            margin-top: 20px;
+            padding: 15px;
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .diagnostics h3 {
+            margin-bottom: 10px;
+            color: #856404;
+        }
+
+        .diagnostics ul {
+            margin-left: 20px;
+        }
+
+        .diagnostics li {
+            margin-bottom: 5px;
+            color: #856404;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔊 Teste de TTS</h1>
+        <p class="subtitle">Google Translate Text-to-Speech</p>
+        
+        <div class="form-group">
+            <label for="textInput">Texto para falar:</label>
+            <textarea 
+                id="textInput" 
+                placeholder="Digite o texto que deseja ouvir..."
+            >Olá, este é um teste do sistema de áudio.</textarea>
+        </div>
+        
+        <button id="testBtn" onclick="testAudio()">
+            🎵 Testar Áudio
+        </button>
+        
+        <button id="queueBtn" onclick="addToQueue()" style="background: #28a745;">
+            ➕ Adicionar à Fila TTS
+        </button>
+        
+        <div id="status" class="status"></div>
+        
+        <div class="diagnostics">
+            <h3>📊 Diagnóstico do Sistema:</h3>
+            <ul id="diagnosticsList"></ul>
+        </div>
+        
+        <div class="log" id="log"></div>
+    </div>
+
+    <script>
+        // Sistema de log
+        function addLog(message, type = 'info') {
+            const log = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry ' + type;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            log.insertBefore(entry, log.firstChild);
+            console.log(message);
+        }
+
+        // Mostra status
+        function showStatus(message, type = 'info') {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = 'status show ' + type;
+            setTimeout(() => {
+                status.classList.remove('show');
+            }, 5000);
+        }
+
+        // Gera URL do TTS
+        function generateTTSUrl(text, language = 'pt-BR') {
+            const encodedText = encodeURIComponent(text.trim());
+            return `https://translate.google.com/translate_tts?ie=UTF-8&tl=${language}&client=gtx&q=${encodedText}`;
+        }
+
+        // Função de teste de áudio
+        async function testAudio() {
+            const text = document.getElementById('textInput').value.trim();
+            
+            if (!text) {
+                showStatus('⚠️ Digite um texto primeiro!', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('testBtn');
+            btn.disabled = true;
+            btn.textContent = '🔄 Tocando...';
+
+            addLog('Iniciando teste de áudio...', 'info');
+            showStatus('🔊 Reproduzindo áudio...', 'info');
+
+            try {
+                // Limita o texto
+                const cleanText = text.substring(0, 200);
+                addLog(`Texto: "${cleanText.substring(0, 50)}..."`, 'info');
+
+                // Gera URL
+                const ttsUrl = generateTTSUrl(cleanText);
+                addLog(`URL gerada: ${ttsUrl.substring(0, 80)}...`, 'info');
+
+                // Cria elemento de áudio
+                const audio = new Audio();
+                audio.volume = 1.0;
+                audio.preload = 'auto';
+
+                // Event listeners
+                audio.addEventListener('loadeddata', () => {
+                    addLog('✅ Áudio carregado com sucesso', 'success');
+                });
+
+                audio.addEventListener('play', () => {
+                    addLog('▶️ Reprodução iniciada', 'success');
+                });
+
+                audio.addEventListener('ended', () => {
+                    addLog('✅ Reprodução finalizada', 'success');
+                    showStatus('✅ Áudio reproduzido com sucesso!', 'success');
+                    btn.disabled = false;
+                    btn.textContent = '🎵 Testar Áudio';
+                });
+
+                audio.addEventListener('error', (e) => {
+                    let errorMsg = 'Erro desconhecido';
+                    if (audio.error) {
+                        switch (audio.error.code) {
+                            case 1: errorMsg = 'MEDIA_ERR_ABORTED'; break;
+                            case 2: errorMsg = 'MEDIA_ERR_NETWORK'; break;
+                            case 3: errorMsg = 'MEDIA_ERR_DECODE'; break;
+                            case 4: errorMsg = 'MEDIA_ERR_SRC_NOT_SUPPORTED'; break;
+                        }
+                    }
+                    addLog(`❌ Erro: ${errorMsg}`, 'error');
+                    showStatus(`❌ Erro ao reproduzir: ${errorMsg}`, 'error');
+                    btn.disabled = false;
+                    btn.textContent = '🎵 Testar Áudio';
+                });
+
+                // Define fonte e toca
+                audio.src = ttsUrl;
+                
+                const playPromise = audio.play();
+                if (playPromise !== undefined) {
+                    await playPromise;
+                    addLog('✅ Play promise resolvida', 'success');
+                }
+
+            } catch (err) {
+                addLog(`❌ Erro ao reproduzir: ${err.name} - ${err.message}`, 'error');
+                
+                if (err.name === 'NotAllowedError') {
+                    showStatus('❌ Autoplay bloqueado! Clique novamente.', 'error');
+                } else {
+                    showStatus(`❌ Erro: ${err.message}`, 'error');
+                }
+                
+                btn.disabled = false;
+                btn.textContent = '🎵 Testar Áudio';
+            }
+        }
+
+        // Adiciona à fila do servidor TTS
+        async function addToQueue() {
+            const text = document.getElementById('textInput').value.trim();
+            
+            if (!text) {
+                showStatus('⚠️ Digite um texto primeiro!', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('queueBtn');
+            btn.disabled = true;
+            btn.textContent = '🔄 Enviando...';
+
+            addLog('Adicionando à fila TTS...', 'info');
+
+            try {
+                const response = await fetch('/api/tts/queue', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        text: `Teste manual enviou ${text}`,
+                        username: 'teste_manual',
+                        priority: 0
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Erro HTTP: ${response.status}`);
+                }
+
+                const data = await response.json();
+                addLog(`✅ Adicionado à fila! Tamanho: ${data.queueSize}`, 'success');
+                showStatus('✅ Mensagem adicionada à fila TTS!', 'success');
+
+            } catch (err) {
+                addLog(`❌ Erro ao adicionar à fila: ${err.message}`, 'error');
+                showStatus(`❌ Erro: ${err.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '➕ Adicionar à Fila TTS';
+            }
+        }
+
+        // Diagnóstico do sistema
+        function runDiagnostics() {
+            const list = document.getElementById('diagnosticsList');
+            const diagnostics = [];
+
+            // Verifica AudioContext
+            if (typeof AudioContext !== 'undefined' || typeof webkitAudioContext !== 'undefined') {
+                diagnostics.push('✅ AudioContext: Disponível');
+            } else {
+                diagnostics.push('❌ AudioContext: Indisponível');
+            }
+
+            // Verifica Audio element
+            if (typeof Audio !== 'undefined') {
+                diagnostics.push('✅ Audio Element: Disponível');
+            } else {
+                diagnostics.push('❌ Audio Element: Indisponível');
+            }
+
+            // Verifica protocolo
+            if (window.location.protocol === 'https:' || window.location.hostname === 'localhost') {
+                diagnostics.push('✅ Protocolo: Seguro para autoplay');
+            } else {
+                diagnostics.push('⚠️ Protocolo: HTTP (pode ter restrições)');
+            }
+
+            // Navegador
+            const ua = navigator.userAgent;
+            let browser = 'Desconhecido';
+            if (ua.includes('Firefox')) browser = 'Firefox';
+            else if (ua.includes('Chrome')) browser = 'Chrome';
+            else if (ua.includes('Safari')) browser = 'Safari';
+            else if (ua.includes('Edge')) browser = 'Edge';
+            diagnostics.push(`🌐 Navegador: ${browser}`);
+
+            // Preenche lista
+            list.innerHTML = '';
+            diagnostics.forEach(d => {
+                const li = document.createElement('li');
+                li.textContent = d;
+                list.appendChild(li);
+            });
+
+            addLog('Diagnóstico do sistema executado', 'info');
+        }
+
+        // Executa diagnóstico ao carregar
+        window.addEventListener('load', () => {
+            runDiagnostics();
+            addLog('Sistema de teste iniciado', 'success');
+            showStatus('✅ Sistema pronto para testes', 'success');
+        });
+
+        // Permite Enter para testar
+        document.getElementById('textInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && e.ctrlKey) {
+                testAudio();
+            }
+        });
+
+        addLog('💡 Dica: Pressione Ctrl+Enter no campo de texto para testar', 'info');
+    </script>
+</body>
+</html>

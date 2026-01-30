@@ -1,0 +1,254 @@
+/* Estilos principais */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background: transparent;
+    font-family: Arial, sans-serif;
+    overflow-x: hidden;
+    overflow-y: auto;
+    margin: 0;
+    padding: 0;
+    transition: background 0.3s, color 0.3s;
+}
+
+/* Temas */
+body.theme-dark {
+    background: rgba(0, 0, 0, 0.9);
+    color: #fff;
+}
+
+body.theme-light {
+    background: rgba(255, 255, 255, 0.95);
+    color: #000;
+}
+
+/* Painéis - Agora usando flexbox ao invés de fixed */
+.tts-controls-panel,
+.stats-panel,
+.messages-panel,
+.settings-panel,
+.users-panel {
+    background: rgba(0, 0, 0, 0.85);
+    border: 2px solid #9146ff;
+    border-radius: 10px;
+    padding: 15px;
+    color: #fff;
+    font-size: 12px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    min-height: 200px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.theme-light .tts-controls-panel,
+.theme-light .stats-panel,
+.theme-light .messages-panel,
+.theme-light .settings-panel {
+    background: rgba(255, 255, 255, 0.95);
+    color: #000;
+    border-color: #772ce8;
+}
+
+/* Painéis agora são flexíveis e se adaptam ao container */
+.tts-controls-panel {
+    flex: 1;
+}
+
+.stats-panel {
+    flex: 1;
+}
+
+.messages-panel {
+    flex: 1;
+    min-height: 300px;
+}
+
+.settings-panel {
+    flex: 0 0 auto;
+    max-height: 250px;
+}
+
+h3 {
+    margin: 0 0 10px 0;
+    color: #9146ff;
+    font-size: 14px;
+    border-bottom: 1px solid #9146ff;
+    padding-bottom: 5px;
+}
+
+/* Controles */
+.control-group {
+    margin: 10px 0;
+}
+
+.control-btn {
+    background: #9146ff;
+    color: white;
+    border: none;
+    padding: 8px 15px;
+    border-radius: 5px;
+    cursor: pointer;
+    margin: 5px;
+    font-size: 12px;
+    transition: all 0.3s;
+}
+
+.control-btn:hover {
+    background: #772ce8;
+    transform: scale(1.05);
+}
+
+.slider {
+    width: 100%;
+    margin: 5px 0;
+}
+
+/* Estatísticas */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin: 10px 0;
+}
+
+.stat-item {
+    text-align: center;
+    padding: 10px;
+    background: rgba(145, 70, 255, 0.1);
+    border-radius: 5px;
+}
+
+.stat-value {
+    font-size: 24px;
+    font-weight: bold;
+    color: #9146ff;
+}
+
+.stat-label {
+    font-size: 10px;
+    color: #999;
+    margin-top: 5px;
+}
+
+.export-btn {
+    background: #00d9ff;
+    color: white;
+    border: none;
+    padding: 5px 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    margin: 5px;
+    font-size: 11px;
+}
+
+/* Mensagens */
+.message-item {
+    background: rgba(145, 70, 255, 0.1);
+    border-left: 3px solid #9146ff;
+    padding: 8px;
+    margin: 5px 0;
+    border-radius: 4px;
+}
+
+.message-username {
+    color: #9146ff;
+    font-weight: bold;
+    margin-right: 5px;
+}
+
+.message-text {
+    color: #fff;
+}
+
+.message-time {
+    color: #999;
+    font-size: 10px;
+    margin-top: 3px;
+}
+
+.no-messages {
+    color: #999;
+    font-style: italic;
+    text-align: center;
+    padding: 20px;
+}
+
+/* Configurações */
+.setting-item {
+    margin: 10px 0;
+}
+
+.setting-item label {
+    display: block;
+    margin-bottom: 5px;
+}
+
+.setting-item select,
+.setting-item input[type="range"] {
+    width: 100%;
+}
+
+/* Usuários Online - Agora flexível */
+.users-panel {
+    flex: 1;
+    min-height: 200px;
+}
+
+.theme-light .users-panel {
+    background: rgba(255, 255, 255, 0.95);
+    color: #000;
+    border-color: #772ce8;
+}
+
+.users-list {
+    max-height: 250px;
+    overflow-y: auto;
+}
+
+.user-item {
+    padding: 8px;
+    margin: 5px 0;
+    background: rgba(145, 70, 255, 0.1);
+    border-radius: 5px;
+    border-left: 3px solid #9146ff;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.user-name {
+    font-weight: bold;
+    color: #9146ff;
+    margin-right: 10px;
+}
+
+.user-stats {
+    font-size: 10px;
+    color: #999;
+    text-align: right;
+}
+
+.no-users {
+    color: #999;
+    font-style: italic;
+    text-align: center;
+    padding: 20px;
+}
+
+/* Modo compacto */
+body.compact-mode .tts-controls-panel,
+body.compact-mode .stats-panel,
+body.compact-mode .messages-panel,
+body.compact-mode .settings-panel,
+body.compact-mode .users-panel {
+    font-size: 10px;
+    padding: 10px;
+}
+
+body.compact-mode h3 {
+    font-size: 12px;
+}

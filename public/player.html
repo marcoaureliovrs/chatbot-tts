@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TTS Player (Proxy Method)</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: transparent;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        
+        .status {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            color: #fff;
+            font-size: 14px;
+            background: rgba(145, 70, 255, 0.9);
+            padding: 10px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            display: none;
+            z-index: 1000;
+        }
+        
+        .status.show {
+            display: block;
+        }
+        
+        .status.playing {
+            background: rgba(76, 175, 80, 0.9);
+        }
+        
+        .status.error {
+            background: rgba(244, 67, 54, 0.9);
+        }
+
+        .activation-prompt {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 30px 40px;
+            border-radius: 12px;
+            text-align: center;
+            z-index: 2000;
+            display: none;
+        }
+
+        .activation-prompt.show {
+            display: block;
+        }
+
+        .activation-prompt button {
+            margin-top: 20px;
+            padding: 12px 30px;
+            font-size: 16px;
+            background: #9146ff;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .activation-prompt button:hover {
+            background: #772ce8;
+        }
+
+        .info {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            color: #fff;
+            font-size: 12px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 8px 15px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="status" id="status">Sistema iniciando...</div>
+    <div class="info">Player Proxy Method (Alternativo)</div>
+    
+    <div class="activation-prompt" id="activationPrompt">
+        <h2>🔊 Ativar Áudio TTS</h2>
+        <p>Clique no botão para permitir a reprodução de áudio</p>
+        <button id="activateBtn">Ativar Áudio</button>
+    </div>
+
+    <script>
+        console.log('🎵 TTS Player (Proxy Method) iniciado');
+        
+        let audioEnabled = false;
+        let isPlaying = false;
+        let currentAudio = null;
+        let lastProcessedId = null;
+
+        // Lista de URLs alternativas do Google Translate
+        const TTS_METHODS = [
+            // Método 1: client=gtx
+            (text, lang) => `https://translate.google.com/translate_tts?ie=UTF-8&tl=${lang}&client=gtx&q=${encodeURIComponent(text)}`,
+            // Método 2: client=tw-ob
+            (text, lang) => `https://translate.google.com/translate_tts?ie=UTF-8&tl=${lang}&client=tw-ob&q=${encodeURIComponent(text)}`,
+            // Método 3: client=t
+            (text, lang) => `https://translate.google.com/translate_tts?ie=UTF-8&tl=${lang}&client=t&q=${encodeURIComponent(text)}`,
+        ];
+
+        let currentMethodIndex = 0;
+
+        function generateTTSUrl(text, language = 'pt-BR') {
+            const method = TTS_METHODS[currentMethodIndex];
+            return method(text.trim(), language);
+        }
+
+        function showStatus(message, type = '') {
+            const statusEl = document.getElementById('status');
+            if (message) {
+                statusEl.textContent = message;
+                statusEl.className = 'status show ' + type;
+            } else {
+                statusEl.className = 'status';
+            }
+        }
+
+        function showActivationPrompt() {
+            const prompt = document.getElementById('activationPrompt');
+            prompt.classList.add('show');
+            showStatus('⚠️ Clique para ativar áudio', 'error');
+        }
+
+        document.getElementById('activateBtn').addEventListener('click', async () => {
+            try {
+                // Testa com Web Speech API primeiro
+                if ('speechSynthesis' in window) {
+                    const utterance = new SpeechSynthesisUtterance('teste');
+                    utterance.volume = 0.01;
+                    speechSynthesis.speak(utterance);
+                    speechSynthesis.cancel();
+                }
+
+                audioEnabled = true;
+                document.getElementById('activationPrompt').classList.remove('show');
+                showStatus('✅ Áudio ativado com sucesso!', 'playing');
+                console.log('✅ Áudio ativado pelo usuário');
+                
+                setTimeout(() => showStatus(''), 2000);
+            } catch (err) {
+                console.error('❌ Erro ao ativar áudio:', err);
+                showStatus('❌ Erro ao ativar. Tente novamente.', 'error');
+            }
+        });
+
+        async function playAudioWithFallback(text) {
+            if (!text || text.trim().length === 0) {
+                console.warn('⚠️ Texto vazio, ignorando');
+                return;
+            }
+
+            if (!audioEnabled) {
+                console.warn('⚠️ Áudio não ativado ainda');
+                showActivationPrompt();
+                return;
+            }
+
+            const cleanText = text.trim().substring(0, 200);
+            console.log('🔊 Tentando tocar áudio:', cleanText.substring(0, 50) + '...');
+
+            // Tenta com Web Speech API (mais confiável)
+            if ('speechSynthesis' in window) {
+                console.log('🗣️ Usando Web Speech API (mais confiável)');
+                return playWithSpeechSynthesis(cleanText);
+            }
+
+            // Fallback para Google Translate
+            console.log('🌐 Tentando Google Translate...');
+            await playWithGoogleTranslate(cleanText);
+        }
+
+        function playWithSpeechSynthesis(text) {
+            showStatus('🔊 Falando: ' + text.substring(0, 30) + '...', 'playing');
+
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'pt-BR';
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+            utterance.volume = 1.0;
+
+            const voices = speechSynthesis.getVoices();
+            const ptVoice = voices.find(v => v.lang.startsWith('pt-BR')) || 
+                           voices.find(v => v.lang.startsWith('pt'));
+            if (ptVoice) {
+                utterance.voice = ptVoice;
+            }
+
+            utterance.onstart = () => {
+                console.log('▶️ Fala iniciada');
+                isPlaying = true;
+            };
+
+            utterance.onend = () => {
+                console.log('✅ Fala finalizada');
+                showStatus('✅ Concluído');
+                isPlaying = false;
+                setTimeout(() => showStatus(''), 1000);
+            };
+
+            utterance.onerror = (event) => {
+                console.error('❌ Erro na fala:', event.error);
+                showStatus('❌ Erro: ' + event.error, 'error');
+                isPlaying = false;
+            };
+
+            speechSynthesis.speak(utterance);
+        }
+
+        async function playWithGoogleTranslate(text) {
+            showStatus('🔊 Tocando: ' + text.substring(0, 30) + '...', 'playing');
+
+            if (currentAudio) {
+                try {
+                    currentAudio.pause();
+                    currentAudio.src = '';
+                } catch (e) {
+                    console.warn('Erro ao parar áudio anterior:', e);
+                }
+                currentAudio = null;
+            }
+
+            const audio = new Audio();
+            audio.volume = 1.0;
+            audio.preload = 'auto';
+            currentAudio = audio;
+            
+            const ttsUrl = generateTTSUrl(text);
+            console.log(`🔗 Método ${currentMethodIndex + 1}: ${ttsUrl.substring(0, 100)}...`);
+
+            audio.addEventListener('play', () => {
+                console.log('▶️ Áudio iniciado');
+                isPlaying = true;
+            });
+
+            audio.addEventListener('ended', () => {
+                console.log('✅ Áudio finalizado');
+                showStatus('✅ Concluído');
+                isPlaying = false;
+                currentAudio = null;
+                setTimeout(() => showStatus(''), 1000);
+            });
+
+            audio.addEventListener('error', async (e) => {
+                console.error(`❌ Erro no método ${currentMethodIndex + 1}`);
+                
+                // Tenta próximo método
+                currentMethodIndex++;
+                if (currentMethodIndex < TTS_METHODS.length) {
+                    console.log(`🔄 Tentando método ${currentMethodIndex + 1}...`);
+                    await playWithGoogleTranslate(text);
+                } else {
+                    // Se todos falharam, usa Speech Synthesis
+                    console.log('⚠️ Todos os métodos do Google falharam, usando Web Speech API');
+                    currentMethodIndex = 0;
+                    if ('speechSynthesis' in window) {
+                        playWithSpeechSynthesis(text);
+                    } else {
+                        showStatus('❌ Nenhum método funcionou', 'error');
+                        isPlaying = false;
+                        currentAudio = null;
+                    }
+                }
+            });
+
+            audio.src = ttsUrl;
+            
+            try {
+                await audio.play();
+                console.log('✅ Play iniciado com sucesso');
+                currentMethodIndex = 0; // Reset se funcionou
+            } catch (err) {
+                console.error('❌ Erro ao iniciar reprodução:', err);
+                if (err.name === 'NotAllowedError') {
+                    audioEnabled = false;
+                    showActivationPrompt();
+                }
+            }
+        }
+
+        async function processQueue() {
+            if (isPlaying || speechSynthesis.speaking) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/tts/state');
+                if (!response.ok) return;
+                
+                const data = await response.json();
+                
+                if (data.queue && data.queue.length > 0 && !data.paused && data.enabled) {
+                    const nextMessage = data.queue[0];
+                    if (nextMessage && nextMessage.text) {
+                        const messageId = nextMessage.id || nextMessage.text + nextMessage.timestamp;
+                        
+                        if (messageId === lastProcessedId) {
+                            return;
+                        }
+                        
+                        lastProcessedId = messageId;
+                        console.log('🔊 Nova mensagem da fila:', nextMessage.text.substring(0, 50));
+                        
+                        await playAudioWithFallback(nextMessage.text);
+                        
+                        setTimeout(() => {
+                            lastProcessedId = null;
+                            console.log('✅ Pronto para próxima mensagem');
+                        }, 8000);
+                    }
+                } else {
+                    lastProcessedId = null;
+                }
+            } catch (error) {
+                console.error('❌ Erro ao processar fila:', error);
+                lastProcessedId = null;
+            }
+        }
+
+        async function init() {
+            console.log('🚀 Inicializando TTS Player (Proxy Method)...');
+            console.log('💡 Este player tenta múltiplos métodos automaticamente');
+            showStatus('✅ Sistema pronto (Modo Híbrido)', 'playing');
+            
+            // Tenta ativar automaticamente
+            try {
+                const testAudio = new Audio();
+                testAudio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+                testAudio.volume = 0.01;
+                await testAudio.play();
+                testAudio.pause();
+                audioEnabled = true;
+                console.log('✅ Autoplay permitido');
+            } catch (err) {
+                console.warn('⚠️ Autoplay bloqueado, aguardando ativação manual');
+                showActivationPrompt();
+            }
+            
+            setTimeout(() => showStatus(''), 2000);
+            
+            console.log('✅ Sistema de polling iniciado');
+            setInterval(processQueue, 500);
+        }
+
+        window.testTTS = function(text = 'Teste do sistema híbrido') {
+            console.log('🧪 Executando teste manual...');
+            playAudioWithFallback(text);
+        };
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+
+        console.log('💡 Execute window.testTTS("seu texto") para testar');
+    </script>
+</body>
+</html>

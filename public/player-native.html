@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TTS Player (Nativo) - OBS Source</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: transparent;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        
+        .status {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            color: #fff;
+            font-size: 14px;
+            background: rgba(145, 70, 255, 0.9);
+            padding: 10px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            display: none;
+            z-index: 1000;
+        }
+        
+        .status.show {
+            display: block;
+        }
+        
+        .status.playing {
+            background: rgba(76, 175, 80, 0.9);
+        }
+        
+        .status.error {
+            background: rgba(244, 67, 54, 0.9);
+        }
+    </style>
+</head>
+<body>
+    <div class="status" id="status">Sistema iniciando...</div>
+
+    <script>
+        console.log('🎵 TTS Player NATIVO iniciado');
+        console.log('💡 Usando Web Speech API (SpeechSynthesis)');
+        
+        // Estado do sistema
+        let isPlaying = false;
+        let lastProcessedId = null;
+        let speechSynthesis = window.speechSynthesis;
+        let voices = [];
+
+        // Função para mostrar status
+        function showStatus(message, type = '') {
+            const statusEl = document.getElementById('status');
+            if (message) {
+                statusEl.textContent = message;
+                statusEl.className = 'status show ' + type;
+            } else {
+                statusEl.className = 'status';
+            }
+        }
+
+        // Carrega vozes disponíveis
+        function loadVoices() {
+            voices = speechSynthesis.getVoices();
+            
+            // Filtra vozes em português
+            const ptVoices = voices.filter(v => v.lang.startsWith('pt'));
+            
+            if (ptVoices.length > 0) {
+                console.log(`✅ ${ptVoices.length} vozes em português disponíveis:`);
+                ptVoices.forEach((v, i) => {
+                    console.log(`  ${i + 1}. ${v.name} (${v.lang})`);
+                });
+            } else {
+                console.warn('⚠️ Nenhuma voz em português encontrada');
+                console.log('📋 Vozes disponíveis:', voices.map(v => v.name).join(', '));
+            }
+            
+            return ptVoices.length > 0 ? ptVoices[0] : null;
+        }
+
+        // Espera as vozes carregarem
+        if (speechSynthesis.onvoiceschanged !== undefined) {
+            speechSynthesis.onvoiceschanged = loadVoices;
+        }
+        
+        // Carrega imediatamente também
+        setTimeout(loadVoices, 100);
+
+        // Função para falar usando Web Speech API
+        function speakText(text) {
+            if (!text || text.trim().length === 0) {
+                console.warn('⚠️ Texto vazio, ignorando');
+                return;
+            }
+
+            // Verifica se a API está disponível
+            if (!('speechSynthesis' in window)) {
+                console.error('❌ Web Speech API não disponível neste navegador');
+                showStatus('❌ Web Speech API não suportada', 'error');
+                return;
+            }
+
+            // Cancela qualquer fala anterior
+            if (speechSynthesis.speaking) {
+                speechSynthesis.cancel();
+            }
+
+            const cleanText = text.trim().substring(0, 500);
+            console.log('🔊 Falando:', cleanText.substring(0, 50) + '...');
+            showStatus('🔊 Falando: ' + cleanText.substring(0, 30) + '...', 'playing');
+
+            // Cria utterance
+            const utterance = new SpeechSynthesisUtterance(cleanText);
+            
+            // Configurações
+            utterance.lang = 'pt-BR';
+            utterance.rate = 1.0;  // Velocidade
+            utterance.pitch = 1.0; // Tom
+            utterance.volume = 1.0; // Volume
+
+            // Seleciona voz em português se disponível
+            const ptVoice = voices.find(v => v.lang.startsWith('pt-BR')) || 
+                           voices.find(v => v.lang.startsWith('pt'));
+            
+            if (ptVoice) {
+                utterance.voice = ptVoice;
+                console.log(`🗣️ Usando voz: ${ptVoice.name}`);
+            }
+
+            // Event listeners
+            utterance.onstart = () => {
+                console.log('▶️ Fala iniciada');
+                isPlaying = true;
+            };
+
+            utterance.onend = () => {
+                console.log('✅ Fala finalizada');
+                showStatus('✅ Concluído');
+                isPlaying = false;
+                setTimeout(() => showStatus(''), 1000);
+            };
+
+            utterance.onerror = (event) => {
+                console.error('❌ Erro na fala:', event.error);
+                showStatus('❌ Erro: ' + event.error, 'error');
+                isPlaying = false;
+                setTimeout(() => showStatus(''), 3000);
+            };
+
+            // Fala o texto
+            try {
+                speechSynthesis.speak(utterance);
+            } catch (err) {
+                console.error('❌ Erro ao iniciar fala:', err);
+                showStatus('❌ Erro ao falar', 'error');
+                isPlaying = false;
+            }
+        }
+
+        // Processa fila de TTS via polling
+        async function processQueue() {
+            // Se estiver falando, não processa
+            if (isPlaying || speechSynthesis.speaking) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/tts/state');
+                if (!response.ok) {
+                    return;
+                }
+                
+                const data = await response.json();
+                
+                if (data.queue && data.queue.length > 0 && !data.paused && data.enabled) {
+                    const nextMessage = data.queue[0];
+                    if (nextMessage && nextMessage.text) {
+                        const messageId = nextMessage.id || nextMessage.text + nextMessage.timestamp;
+                        
+                        // Se for a mesma mensagem, ignora
+                        if (messageId === lastProcessedId) {
+                            return;
+                        }
+                        
+                        lastProcessedId = messageId;
+                        console.log('🔊 Nova mensagem da fila:', nextMessage.text.substring(0, 50));
+                        
+                        // Fala o texto
+                        speakText(nextMessage.text);
+                        
+                        // Reseta após 10 segundos
+                        setTimeout(() => {
+                            lastProcessedId = null;
+                            console.log('✅ Pronto para próxima mensagem');
+                        }, 10000);
+                    }
+                } else {
+                    lastProcessedId = null;
+                }
+            } catch (error) {
+                console.error('❌ Erro ao processar fila:', error);
+                lastProcessedId = null;
+            }
+        }
+
+        // Inicialização
+        console.log('🚀 Inicializando...');
+        showStatus('✅ Sistema pronto (Web Speech API)', 'playing');
+        setTimeout(() => showStatus(''), 3000);
+
+        // Inicia polling
+        console.log('✅ Sistema de polling iniciado');
+        console.log('🎵 Aguardando mensagens na fila...');
+        setInterval(processQueue, 500);
+
+        // Expõe função de teste
+        window.testTTS = function(text = 'Teste do sistema de áudio nativo') {
+            console.log('🧪 Executando teste manual...');
+            speakText(text);
+        };
+
+        console.log('💡 Dica: Execute window.testTTS("seu texto") no console para testar');
+    </script>
+</body>
+</html>
