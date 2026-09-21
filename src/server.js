@@ -52,36 +52,42 @@ function createServer(port = 3000) {
     res.sendFile(path.join(__dirname, '../public/player-proxy.html'));
   });
 
-  // Rota para adicionar à fila TTS
+  // Função interna: adiciona à fila e ao histórico (usada pela rota e pelo bot in-process)
+  function addToTTSQueueInternal(text, username, priority) {
+    const textStr = typeof text === 'string' ? String(text).trim() : '';
+    if (!textStr) return null;
+    const message = {
+      text: textStr.substring(0, 500),
+      username: username || 'unknown',
+      priority: parseInt(priority, 10) || 0,
+      timestamp: new Date().toISOString(),
+      id: Date.now() + Math.random()
+    };
+    const queueId = ttsQueue.add(message, message.priority);
+    messageHistory.unshift({ ...message, status: 'queued' });
+    console.log(`✅ TTS na fila: "${message.text.substring(0, 50)}..." (usuário: ${message.username}, fila: ${ttsQueue.size()})`);
+    return { success: true, queueId, queueSize: ttsQueue.size() };
+  }
+
+  // Expõe para o bot adicionar à fila diretamente (mesmo processo, sem HTTP)
+  app.addToTTSQueue = function (messageData) {
+    const { text, username, priority } = messageData || {};
+    return addToTTSQueueInternal(text, username, priority);
+  };
+
+  // Rota para adicionar à fila TTS (HTTP)
   app.post('/api/tts/queue', (req, res) => {
     try {
-      console.log('📥 POST /api/tts/queue - Body:', JSON.stringify(req.body));
+      if (!req.body || typeof req.body !== 'object') {
+        console.error('❌ POST /api/tts/queue - Body inválido ou vazio');
+        return res.status(400).json({ error: 'Body inválido. Envie JSON com text, username, priority.' });
+      }
       const { text, username, priority } = req.body;
-      console.log(`   text: "${text}" (tipo: ${typeof text}, length: ${text?.length || 0})`);
-      console.log(`   username: "${username}"`);
-
-      if (!text || typeof text !== 'string') {
-        console.error('❌ Texto inválido!');
+      const result = addToTTSQueueInternal(text, username, priority);
+      if (!result) {
         return res.status(400).json({ error: 'Texto é obrigatório' });
       }
-
-      const message = {
-        text: String(text).substring(0, 500),
-        username: username || 'unknown',
-        priority: parseInt(priority) || 0,
-        timestamp: new Date().toISOString(),
-        id: Date.now() + Math.random()
-      };
-
-      const queueId = ttsQueue.add(message, parseInt(priority) || 0);
-
-      // Adiciona ao histórico (não remove até refresh da página)
-      messageHistory.unshift({ ...message, status: 'queued' });
-
-      // Log para debug
-      console.log(`✅ TTS adicionado à fila: "${message.text.substring(0, 50)}..." (usuário: ${message.username}, fila: ${ttsQueue.size()})`);
-
-      res.json({ success: true, queueId, queueSize: ttsQueue.size() });
+      res.json(result);
     } catch (error) {
       console.error('❌ Erro ao adicionar à fila:', error);
       res.status(500).json({ error: 'Erro interno' });
@@ -311,34 +317,40 @@ function createServer(port = 3000) {
   // Proxy de TTS (Google Translate) para permitir autoplay sem CORS
   app.get('/api/proxy-tts', (req, res) => {
     const text = req.query.text;
-    const lang = req.query.lang || 'pt-BR';
+    let lang = (req.query.lang || 'pt-BR').trim();
 
     if (!text || typeof text !== 'string') {
       return res.status(400).json({ error: 'text é obrigatório' });
     }
 
-    // Limita tamanho
-    const cleanText = text.substring(0, 200);
+    // Limita tamanho (Google aceita ~200 chars por requisição)
+    const cleanText = text.substring(0, 200).trim();
+    if (!cleanText) {
+      return res.status(400).json({ error: 'texto vazio' });
+    }
 
-    // Gera URL do Google Translate TTS
-    const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${encodeURIComponent(lang)}&client=tw-ob&q=${encodeURIComponent(cleanText)}`;
+    // Google Translate TTS usa "pt" para português (pt-BR funciona em alguns endpoints)
+    const tl = lang.toLowerCase() === 'pt-br' ? 'pt' : lang;
 
-    console.log(`[proxy-tts] Buscando TTS: "${cleanText.substring(0, 50)}..."`);
+    const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${encodeURIComponent(tl)}&client=tw-ob&q=${encodeURIComponent(cleanText)}`;
+
+    console.log(`[proxy-tts] Buscando TTS: "${cleanText.substring(0, 50)}..." (lang=${tl})`);
 
     https.get(ttsUrl, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Referer': 'https://translate.google.com/'
       }
     }, (proxyRes) => {
       if (proxyRes.statusCode !== 200) {
         console.error(`[proxy-tts] Erro: ${proxyRes.statusCode}`);
-        res.status(proxyRes.statusCode || 502).json({ error: 'Falha ao buscar TTS' });
-        return;
+        return res.status(proxyRes.statusCode || 502).json({ error: 'Falha ao buscar TTS' });
       }
 
-      // Define headers para áudio
-      res.setHeader('Content-Type', 'audio/mpeg');
+      // Usa Content-Type do Google se for áudio, senão audio/mpeg (padrão do endpoint)
+      const contentType = (proxyRes.headers['content-type'] || '').toLowerCase();
+      const isAudio = contentType.includes('audio/');
+      res.setHeader('Content-Type', isAudio ? (contentType.split(';')[0] || 'audio/mpeg') : 'audio/mpeg');
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Cache-Control', 'public, max-age=3600');
 
@@ -435,6 +447,41 @@ function createServer(port = 3000) {
     }
   });
 
+  // Rota /auth/login - redireciona para Twitch OAuth (documentação aponta para esta URL)
+  app.get('/auth/login', (req, res) => {
+    try {
+      const { getAuthorizationUrl } = require('./auth');
+
+      const clientId = process.env.TWITCH_CLIENT_ID;
+      const redirectUri = process.env.TWITCH_REDIRECT_URI || `http://localhost:${port}/auth/callback`;
+
+      if (!clientId) {
+        return res.status(500).send(`
+          <html><body style="font-family:Arial;padding:40px;background:#1a1a2e;color:white;">
+            <h2>❌ Configuração incompleta</h2>
+            <p>TWITCH_CLIENT_ID não está configurado no arquivo .env</p>
+            <p>Configure as variáveis e reinicie o servidor.</p>
+          </body></html>
+        `);
+      }
+
+      // Scopes necessários: chat:read (ler mensagens !fala) + chat:edit (responder no chat)
+      const scopes = [
+        'chat:read',
+        'chat:edit',
+        'clips:edit',
+        'channel:manage:broadcast',
+        'channel:edit:commercial'
+      ].join(' ');
+
+      const authUrl = getAuthorizationUrl(clientId, redirectUri, scopes);
+      res.redirect(authUrl);
+    } catch (error) {
+      console.error('Erro ao gerar URL de login:', error);
+      res.status(500).send(`Erro: ${error.message}`);
+    }
+  });
+
   // Gera URL para solicitar novos scopes OAuth
   app.get('/api/stream/auth-url', (req, res) => {
     try {
@@ -479,7 +526,16 @@ function createServer(port = 3000) {
 
       const clientId = process.env.TWITCH_CLIENT_ID;
       const clientSecret = process.env.TWITCH_CLIENT_SECRET;
-      const redirectUri = process.env.TWITCH_REDIRECT_URI || 'http://localhost:3000/auth/callback';
+      const redirectUri = process.env.TWITCH_REDIRECT_URI || `http://localhost:${port}/auth/callback`;
+
+      if (!clientSecret) {
+        return res.status(500).send(`
+          <html><body style="font-family:Arial;padding:40px;background:#1a1a2e;color:white;">
+            <h2>❌ TWITCH_CLIENT_SECRET não configurado</h2>
+            <p>Configure no .env e reinicie o servidor.</p>
+          </body></html>
+        `);
+      }
 
       const tokens = await exchangeCodeForTokens(code, clientId, clientSecret, redirectUri);
       saveTokens(tokens);
@@ -503,14 +559,33 @@ function createServer(port = 3000) {
         <body>
           <div class="success">✅ Autorização concluída com sucesso!</div>
           <p>Novas permissões foram concedidas.</p>
-          <p>Você pode fechar esta janela ou retornar ao dashboard.</p>
+          <p><strong>Reinicie o servidor</strong> para o bot conectar ao chat e capturar !fala</p>
           <button onclick="window.close() || (window.location.href='/')">Fechar / Voltar ao Dashboard</button>
         </body>
         </html>
       `);
     } catch (error) {
       console.error('Erro no callback OAuth:', error);
-      res.status(500).send(`Erro na autorização: ${error.message}`);
+      const msg = error.message || '';
+      const isInvalidClient = msg.includes('invalid client') || msg.includes('invalid_client');
+      const html = `
+        <html><body style="font-family:Arial;padding:40px;background:#1a1a2e;color:white;">
+          <h2>❌ Erro na autorização</h2>
+          <p>${msg}</p>
+          ${isInvalidClient ? `
+            <hr style="margin:20px 0;border-color:#444;">
+            <p><strong>Erro "invalid client" - verifique:</strong></p>
+            <ul style="text-align:left;max-width:500px;margin:0 auto;">
+              <li>TWITCH_CLIENT_ID e TWITCH_CLIENT_SECRET no .env estão corretos?</li>
+              <li>O Client Secret foi regenerado na Twitch? Se sim, use o novo no .env e <strong>apague o arquivo .twitch-tokens.json</strong></li>
+              <li>TWITCH_REDIRECT_URI = http://localhost:${port}/auth/callback (cadastrada no Twitch)</li>
+              <li>A URL de redirecionamento está cadastrada no Twitch Developer Console</li>
+            </ul>
+          ` : ''}
+          <p><a href="/auth/login" style="color:#9146ff;">Tentar novamente</a></p>
+        </body></html>
+      `;
+      res.status(500).send(html);
     }
   });
 

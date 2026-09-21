@@ -48,32 +48,43 @@ async function startBot() {
     const accessToken = await getValidAccessToken(CLIENT_ID, CLIENT_SECRET);
     console.log('✅ Autenticação válida!');
 
-    // Configurações do bot
+    // Canal: remove # e espaços (tmi.js aceita "channel" ou "#channel")
+    const channel = (TWITCH_CHANNEL || '').trim().replace(/^#+/, '');
+    if (!channel) {
+      throw new Error('TWITCH_CHANNEL está vazio no .env');
+    }
+
+    // Configurações do bot (app = entrada direta na fila no mesmo processo)
     const BOT_CONFIG = {
       accessToken: accessToken,
       clientId: CLIENT_ID,
-      channels: [TWITCH_CHANNEL],
+      channels: [channel],
       cooldownSeconds: parseInt(process.env.TTS_COOLDOWN_SECONDS || '3', 10),
       maxLength: parseInt(process.env.TTS_MAX_LENGTH || '200', 10),
-      serverUrl: `http://localhost:${PORT}`
+      serverUrl: `http://localhost:${PORT}`,
+      app: app
     };
 
     // Inicia o bot da Twitch
     console.log('🤖 Iniciando bot da Twitch...');
     const bot = await createBot(BOT_CONFIG);
-    
+
     // Conecta bot ao servidor para acesso via API
     if (app) {
       app.getBot = () => bot;
     }
-    
+
     return bot;
   } catch (error) {
     console.error('❌ Erro ao iniciar bot:', error.message);
-    if (error.message.includes('Nenhum token encontrado') || error.message.includes('faça login')) {
+    if (error.message === 'AUTH_REQUIRED' || error.message.includes('token') || error.message.includes('invalid client')) {
       console.log('');
-      console.log('📝 Por favor, faça login primeiro:');
-      console.log(`   http://localhost:${PORT}/auth/login`);
+      console.log('📝 Para capturar !fala do chat:');
+      console.log(`   1. Acesse http://localhost:${PORT}/auth/login`);
+      console.log('   2. Autorize o app na Twitch');
+      console.log('   3. Reinicie o servidor');
+      console.log('');
+      console.log('   Se "invalid client": verifique TWITCH_CLIENT_SECRET no .env e apague .twitch-tokens.json');
     }
     return null;
   }

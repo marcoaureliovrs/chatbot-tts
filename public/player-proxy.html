@@ -109,6 +109,8 @@
         let currentAudio = null;
         let lastPlayTime = 0;
         let needsUserInteraction = false;
+        /** Volume 0-1, sincronizado com o servidor (dashboard / !ttsvolume) */
+        let currentVolume = 1.0;
 
         // Usa proxy do servidor (resolve CORS e autoplay)
         function generateTTSUrl(text, language = 'pt-BR') {
@@ -243,7 +245,7 @@
             }
 
             const audio = new Audio();
-            audio.volume = 1.0;
+            audio.volume = Math.max(0, Math.min(1, currentVolume));
             audio.preload = 'auto';
             currentAudio = audio;
 
@@ -320,6 +322,12 @@
                 if (!response.ok) return;
 
                 const data = await response.json();
+
+                // Sincroniza volume do servidor (dashboard / !ttsvolume)
+                const vol = data.volume;
+                if (vol != null && !isNaN(vol)) {
+                    currentVolume = Math.max(0, Math.min(100, parseInt(vol, 10))) / 100;
+                }
 
                 if (data.queue && data.queue.length > 0 && !data.paused && data.enabled) {
                     const nextMessage = data.queue[0];

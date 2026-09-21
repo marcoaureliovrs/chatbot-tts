@@ -24,7 +24,8 @@ async function createBot(config) {
     channels,
     cooldownSeconds = 3,
     maxLength = 200,
-    serverUrl = 'http://localhost:3000'
+    serverUrl = 'http://localhost:3000',
+    app = null
   } = config;
 
   // Obtém informações do usuário autenticado
@@ -49,41 +50,63 @@ async function createBot(config) {
     usersTracker.cleanInactive();
   }, 60000);
 
-  // Função para adicionar à fila (definida antes de usar)
+  // Função para adicionar à fila: in-process (app) ou HTTP
   function addToQueue(messageData) {
-    console.log(`📤 Enviando para fila:`, messageData);
-    const data = JSON.stringify(messageData);
+    const textPreview = (messageData.text || '').substring(0, 50);
+    console.log(`[TTS] Adicionando à fila: "${textPreview}..."`);
 
+    // Mesmo processo: usa app.addToTTSQueue (garante entrada na fila sem HTTP)
+    if (app && typeof app.addToTTSQueue === 'function') {
+      try {
+        const result = app.addToTTSQueue({
+          text: messageData.text,
+          username: messageData.username,
+          priority: messageData.priority
+        });
+        if (result && result.success) {
+          console.log(`✅ Mensagem na fila (in-process): "${textPreview}..." (fila: ${result.queueSize})`);
+        } else {
+          console.warn(`⚠️ addToTTSQueue retornou sem sucesso, tentando HTTP...`);
+          addToQueueViaHttp(messageData);
+        }
+      } catch (err) {
+        console.error(`❌ Erro ao adicionar à fila (in-process): ${err.message}`);
+        addToQueueViaHttp(messageData);
+      }
+      return;
+    }
+
+    addToQueueViaHttp(messageData);
+  }
+
+  function addToQueueViaHttp(messageData) {
+    const urlObj = new URL(serverUrl);
+    const port = parseInt(urlObj.port, 10) || 3000;
+    const data = JSON.stringify(messageData);
     const options = {
-      hostname: new URL(serverUrl).hostname,
-      port: new URL(serverUrl).port || 3000,
+      hostname: urlObj.hostname,
+      port,
       path: '/api/tts/queue',
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Content-Length': data.length
+        'Content-Length': Buffer.byteLength(data, 'utf8')
       }
     };
-
     const req = http.request(options, (res) => {
       let responseData = '';
-      res.on('data', (chunk) => {
-        responseData += chunk;
-      });
+      res.on('data', (chunk) => { responseData += chunk; });
       res.on('end', () => {
         if (res.statusCode === 200) {
-          console.log(`✅ Mensagem adicionada à fila: "${messageData.text}"`);
-          console.log(`   Resposta do servidor:`, responseData);
+          console.log(`✅ Mensagem na fila (HTTP): "${(messageData.text || '').substring(0, 40)}..."`);
         } else {
-          console.error(`❌ Erro ao adicionar à fila: ${res.statusCode} - ${responseData}`);
+          console.error(`❌ Fila recusou (${res.statusCode}): ${responseData}`);
         }
       });
     });
-
     req.on('error', (err) => {
-      console.error(`❌ Erro ao adicionar à fila: ${err.message}`);
+      console.error(`❌ Erro ao enviar para fila (${urlObj.hostname}:${port}): ${err.message}`);
     });
-
     req.write(data);
     req.end();
   }
@@ -196,6 +219,16 @@ async function createBot(config) {
   client.on('connected', (addr, port) => {
     console.log(`🤖 Bot conectado em ${addr}:${port}`);
     console.log(`📺 Canais: ${channels.join(', ')}`);
+  });
+
+  // Evento: Desconectado (token expirado, rede, etc.)
+  client.on('disconnected', (reason) => {
+    console.warn(`⚠️ Bot desconectado: ${reason}`);
+  });
+
+  // Evento: Reconectando
+  client.on('reconnect', () => {
+    console.log('🔄 Bot reconectando...');
   });
 
   // Evento: Usuário entrou no chat
@@ -331,24 +364,29 @@ async function createBot(config) {
         return;
       }
 
-      // Verifica se é o comando !fala
-      const commandMatch = message.match(/^!fala\s+(.+)$/i);
+      // Normaliza mensagem (espaços múltiplos, trim) para reconhecer !fala
+      const msgNormalized = (message || '').replace(/\s+/g, ' ').trim();
+      const commandMatch = msgNormalized.match(/^!fala\s+(.+)$/i);
       if (!commandMatch) return;
 
-      // Verifica se TTS está habilitado
+      console.log(`[TTS] !fala recebido de @${username}: "${msgNormalized.substring(0, 60)}..."`);
+
+      // Verifica se TTS está habilitado (só bloqueia se for explicitamente false)
       let ttsEnabled = true;
       try {
-        ttsEnabled = configManager.getConfig('ttsEnabled');
+        const cfg = configManager.getConfig('ttsEnabled');
+        if (cfg === false) ttsEnabled = false;
       } catch (err) {
         console.error('Erro ao verificar TTS habilitado:', err);
       }
 
       if (!ttsEnabled) {
+        console.log(`[TTS] Bloqueado: TTS desabilitado para @${username}`);
         client.say(channel, `@${username}, TTS está desabilitado no momento`);
         return;
       }
 
-      let text = commandMatch[1].trim();
+      let text = (commandMatch[1] || '').trim();
 
       // Valida o texto
       if (text.length === 0) {
@@ -384,6 +422,7 @@ async function createBot(config) {
       // Verifica blacklist
       try {
         if (configManager.hasBlacklistedWords(text)) {
+          console.log(`[TTS] Bloqueado: blacklist para @${username}`);
           client.say(channel, `@${username}, sua mensagem contém palavras bloqueadas`);
           return;
         }
@@ -394,6 +433,7 @@ async function createBot(config) {
       // Verifica spam
       try {
         if (configManager.isSpam(username, text)) {
+          console.log(`[TTS] Bloqueado: spam/repetição para @${username}`);
           client.say(channel, `@${username}, mensagem repetida detectada. Aguarde um momento.`);
           return;
         }
@@ -412,8 +452,10 @@ async function createBot(config) {
 
       if (!cooldown.allowed) {
         if (cooldown.reason === 'blocked') {
+          console.log(`[TTS] Bloqueado: usuário bloqueado @${username}`);
           return; // Silenciosamente ignora usuários bloqueados
         }
+        console.log(`[TTS] Bloqueado: cooldown para @${username} (${cooldown.remaining}s restantes)`);
         client.say(channel, `@${username}, aguarde ${cooldown.remaining} segundo(s) antes de usar novamente`);
         return;
       }
