@@ -589,38 +589,89 @@ function createServer(port = 3000) {
     }
   });
 
-  // Criar clip
-  app.post('/api/stream/create-clip', async (req, res) => {
-    try {
-      const { getBroadcasterInfo, createClip } = require('./twitch-api');
-      const { getValidAccessToken } = require('./auth');
+  // Lógica compartilhada: cria clip no momento da chamada (botão ou link externo)
+  async function createClipNow(hasDelay = false) {
+    const { getBroadcasterInfo, createClip } = require('./twitch-api');
+    const { getValidAccessToken } = require('./auth');
 
-      const clientId = process.env.TWITCH_CLIENT_ID;
-      const clientSecret = process.env.TWITCH_CLIENT_SECRET;
-      const channelName = process.env.TWITCH_CHANNEL;
+    const clientId = process.env.TWITCH_CLIENT_ID;
+    const clientSecret = process.env.TWITCH_CLIENT_SECRET;
+    const channelName = process.env.TWITCH_CHANNEL;
 
-      const accessToken = await getValidAccessToken(clientId, clientSecret);
-      const broadcaster = await getBroadcasterInfo(channelName, accessToken, clientId);
-
-      const hasDelay = req.body.hasDelay || false;
-      const clipData = await createClip(broadcaster.id, accessToken, clientId, hasDelay);
-
-      res.json({
-        success: true,
-        clip: {
-          id: clipData.id,
-          edit_url: clipData.edit_url,
-          created_at: new Date().toISOString()
-        }
-      });
-    } catch (error) {
-      console.error('Erro ao criar clip:', error);
-      res.status(500).json({
-        error: 'Erro ao criar clip',
-        message: error.message
-      });
+    if (!clientId || !clientSecret || !channelName) {
+      const err = new Error('CLIENT_ID, CLIENT_SECRET ou CHANNEL não configurados no .env');
+      err.statusCode = 500;
+      throw err;
     }
-  });
+
+    const accessToken = await getValidAccessToken(clientId, clientSecret);
+    const broadcaster = await getBroadcasterInfo(channelName, accessToken, clientId);
+    const clipData = await createClip(broadcaster.id, accessToken, clientId, !!hasDelay);
+
+    return {
+      success: true,
+      clip: {
+        id: clipData.id,
+        edit_url: clipData.edit_url,
+        created_at: new Date().toISOString()
+      }
+    };
+  }
+
+  function wantsJsonResponse(req) {
+    const format = String(req.query.format || '').toLowerCase();
+    if (format === 'json') return true;
+    if (format === 'html') return false;
+    const accept = String(req.get('Accept') || '');
+    return accept.includes('application/json') && !accept.includes('text/html');
+  }
+
+  function sendCreateClipResult(req, res, result) {
+    if (wantsJsonResponse(req)) {
+      return res.json(result);
+    }
+    const editUrl = result.clip && result.clip.edit_url ? result.clip.edit_url : '#';
+    return res.send(`
+      <html><body style="font-family:Arial;padding:40px;background:#1a1a2e;color:white;text-align:center;">
+        <h2>✅ Clip criado!</h2>
+        <p>O clip foi gerado neste momento.</p>
+        <p><a href="${editUrl}" target="_blank" style="color:#9146ff;">Abrir editor do clip</a></p>
+        <p style="opacity:0.6;font-size:12px;margin-top:24px;">Pode fechar esta janela.</p>
+      </body></html>
+    `);
+  }
+
+  function sendCreateClipError(req, res, error) {
+    const status = error.statusCode || 500;
+    const message = error.message || 'Erro ao criar clip';
+    console.error('Erro ao criar clip:', error);
+    if (wantsJsonResponse(req)) {
+      return res.status(status).json({ error: 'Erro ao criar clip', message });
+    }
+    return res.status(status).send(`
+      <html><body style="font-family:Arial;padding:40px;background:#1a1a2e;color:white;text-align:center;">
+        <h2>❌ Erro ao criar clip</h2>
+        <p>${message}</p>
+        <p style="opacity:0.6;font-size:12px;margin-top:24px;">Verifique se a live está no ar e se o OAuth tem clips:edit.</p>
+      </body></html>
+    `);
+  }
+
+  // POST (dashboard) e GET (link externo / Stream Deck / outra app)
+  async function handleCreateClip(req, res) {
+    try {
+      const hasDelay = (req.body && req.body.hasDelay) || req.query.hasDelay === 'true' || req.query.hasDelay === '1';
+      const result = await createClipNow(hasDelay);
+      return sendCreateClipResult(req, res, result);
+    } catch (error) {
+      return sendCreateClipError(req, res, error);
+    }
+  }
+
+  app.post('/api/stream/create-clip', handleCreateClip);
+  app.get('/api/stream/create-clip', handleCreateClip);
+  // Atalho amigável para outras aplicações: http://localhost:PORT/create-clip
+  app.get('/create-clip', handleCreateClip);
 
   // Obter informações da stream
   app.get('/api/stream/info', async (req, res) => {

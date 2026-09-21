@@ -16,6 +16,7 @@ Bot de Text-to-Speech para Twitch que utiliza o Google Translate TTS via URL, se
 
 ### 📡 Gestão de Live (NOVO!)
 - ✅ **Criar Clips** - Crie clips automaticamente durante a live
+- ✅ **Link externo para Clip** - Chame um URL de outra app (Stream Deck, macros, etc.) e o clip é criado na hora
 - ✅ **Rodar Comerciais** - Controle comerciais sem sair do OBS
 - ✅ **Alterar Título** - Atualize o título da live em tempo real
 - ✅ **Alterar Categoria** - Mude o jogo/categoria facilmente
@@ -341,6 +342,56 @@ fetch('/api/tts/state').then(r => r.json()).then(console.log);
 | `http://localhost:3000/player-native.html` | Player TTS (Voz Nativa) |
 | `http://localhost:3000/api/tts/state` | Estado da fila (JSON) |
 | `http://localhost:3000/auth/login` | Login OAuth |
+| `http://localhost:3000/create-clip` | **Cria um clip ao ser chamado** (link externo) |
+
+## 🎬 Criar Clip via Link (outras aplicações)
+
+Além do botão **Criar Clip** no dashboard, você pode criar um clip abrindo (ou chamando via HTTP) este link:
+
+```
+http://localhost:3000/create-clip
+```
+
+Cada acesso executa a criação do clip **naquele momento**, com a mesma lógica do botão do dashboard.
+
+### Casos de uso
+- Stream Deck / Elgato (ação Abrir URL ou HTTP)
+- Macros de teclado / hotkeys
+- Outro software ou painel que dispare um GET
+
+### Endpoints
+
+| Método | URL | Resposta |
+|--------|-----|----------|
+| `GET` | `/create-clip` | Página HTML de sucesso/erro (ideal para abrir no navegador) |
+| `GET` | `/create-clip?format=json` | JSON (ideal para integração com outras apps) |
+| `GET` / `POST` | `/api/stream/create-clip` | Mesma função (API) |
+
+### Exemplo de resposta JSON
+
+```
+http://localhost:3000/create-clip?format=json
+```
+
+```json
+{
+  "success": true,
+  "clip": {
+    "id": "ClipIdDaTwitch",
+    "edit_url": "https://clips.twitch.tv/...",
+    "created_at": "2026-09-21T15:00:00.000Z"
+  }
+}
+```
+
+### Requisitos
+- Servidor rodando (`npm start`)
+- OAuth autorizado com permissão `clips:edit`
+- Canal ao vivo (a Twitch só cria clip durante a live)
+
+No dashboard, abaixo do botão **Criar Clip**, há o link pronto e um botão para copiar a URL.
+
+> Se a outra aplicação estiver em outro PC da rede, use o IP da máquina do bot, por exemplo: `http://192.168.0.10:3000/create-clip`
 
 ## 🤝 Contribuindo
 

@@ -484,6 +484,12 @@
                         <button id="create-clip-btn" onclick="createClip()" disabled style="background: #FF6B6B;">🎬
                             Criar Clip</button>
                         <span id="clip-status" class="info-text" style="font-size: 11px; text-align: center;"></span>
+                        <div style="font-size: 10px; opacity: 0.85; text-align: center; word-break: break-all;">
+                            <a id="create-clip-link" href="/create-clip" target="_blank" rel="noopener"
+                                style="color: #FF6B6B;">Link para outras apps</a>
+                            <button type="button" onclick="copyCreateClipLink()"
+                                style="margin-left: 4px; padding: 2px 6px; font-size: 10px; cursor: pointer;">📋</button>
+                        </div>
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 5px;">
                         <button id="run-commercial-btn" onclick="showCommercialOptions()" disabled
@@ -1390,7 +1396,33 @@
             return `${hours}h ${minutes}m`;
         }
 
-        // Criar clip
+        function getCreateClipUrl() {
+            return `${window.location.origin}/create-clip`;
+        }
+
+        function updateCreateClipLink() {
+            const link = document.getElementById('create-clip-link');
+            if (link) {
+                link.href = getCreateClipUrl();
+                link.title = getCreateClipUrl();
+            }
+        }
+
+        async function copyCreateClipLink() {
+            const url = getCreateClipUrl();
+            try {
+                await navigator.clipboard.writeText(url);
+                const status = document.getElementById('clip-status');
+                if (status) {
+                    status.textContent = '📋 Link copiado!';
+                    setTimeout(() => { status.textContent = ''; }, 2500);
+                }
+            } catch (err) {
+                prompt('Copie o link para criar clip:', url);
+            }
+        }
+
+        // Criar clip (mesmo endpoint do link /create-clip)
         async function createClip() {
             if (!streamManagementScopes.hasClipsEdit) {
                 alert('Você não tem permissão para criar clips. Solicite novas permissões.');
@@ -1405,9 +1437,12 @@
             status.textContent = 'Aguarde...';
 
             try {
-                const response = await fetch('/api/stream/create-clip', {
+                const response = await fetch('/api/stream/create-clip?format=json', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
                     body: JSON.stringify({ hasDelay: false })
                 });
 
@@ -1670,6 +1705,7 @@
         }
 
         // Inicializa
+        updateCreateClipLink();
         updateState();
         updateStats();
         loadClips();
